@@ -1,6 +1,6 @@
-import { useContext, useEffect, useState} from "react"
-import { createContext } from "react"
-import { createStyleState, createGameState, deepCopify, dictify, randomWordAPI, wordAPI, delay } from "./base"
+import React, { useContext, createContext, useEffect, useState} from "react"
+import { createStyleState, createGameState, deepCopify, dictify, randomWordAPI, wordAPI } from "./base"
+import { FUll_FLIP_WAIT, INVALID_WAIT } from "./constants"
 
 const GameContext = createContext()
 
@@ -12,101 +12,98 @@ export function GCProvider({ children }) {
 
     const [gameState, setGameState] = useState(createGameState)
     const [styleState, setStyleState] = useState(createStyleState)
-    // console.table(styleState)
-    const [realWord, setRealWord] = useState() //Try storing in Local Memory
+    const [realWord, setRealWord] = useState()
     const [inPlay, setInPlay] = useState(true)
-    const [loading, setLoading] = useState()
-    const [currRow, setCurrRow] = useState(0)
-    const [currBox, setCurrBox] = useState(0)
-    const [invalidRow, setInvalidRow] = useState(null)
+    const [loading, setLoading] = useState(false)
 
-    const invalidDelay = 300 
+    //TODO: Better name for states
+    const [pos, setPos] = useState({currRow : 0, currBox : 0})
+    const [rowStyle, setRowStyle] = useState({ invalidRow : null, flipRow : null, bounceRow : null })
 
     useEffect(() => {
-        async function getWord(){
-            setLoading(true)
+        const getWord = async() =>{
+            setLoading(prev => true)
             let output = await randomWordAPI()
             setRealWord(output)
-            // setRealWord("")
-            setLoading(false)
+            setLoading(prev => false)
             console.log(output)
         }
         getWord()
     }, [])
+
+    //TODO: Storage Capability
+    // useEffect(() => {
+    //     if( !(sessionStorage.getItem('PriWordle')) ){
+    //         const game = {
+    //             boardState : gameState.map((arr) => arr.join("")),
+    //             realWord : realWord,
+    //             currRowIndex : pos.currRow,
+    //             inPlay : pauses.inPlay,
+    //         }
+    //         sessionStorage.setItem('PriWordle', JSON.stringify(game))
+    //         console.log("Setted")
+    //     }
+
+    //     else{
+    //         const data = JSON.parse(sessionStorage.getItem('PriWordle'))
+    //         console.table(data)
+
+    //         // // setGameState(prev => data.boardState)
+    //         setRealWord(prev => data.realWord)
+    //         setPos(prev => ({currRow : data['currRowIndex'], currBox : 0}))
+    //         setPauses(prev => ({...pauses, inPlay : data['inPlay']}))
+    //     }
+
+    //     return () => {
+    //         // sessionStorage.clear()
+    //         // alert('Cleared')
+    //     }
+    // }, [realWord])
     
     function handleKeyChanges(e){
         const key = e.key
         const isLetter = key.length === 1 && /^[A-Za-z]*$/.test(key)
-        switch(isLetter){
-            case(true):
-                updateLetter(key.toUpperCase())
-                break
-            case(false):
-                if(currBox > 0 && key === 'Backspace'){
-                    deleteLetter()
-                }
-                else if(currBox === 5 && key === 'Enter'){
-                    checkValidity()
-                }
-                break
-            default:
-                break
+
+        if(isLetter && pos.currBox < 5){
+            updateLetter(key.toUpperCase())
+        }
+        else if(key === 'Backspace' && pos.currBox > 0){
+            deleteLetter()
+        }
+        else if(key === 'Enter' && pos.currBox === 5){
+            checkValidity()
         }
     }
 
-    function updateLetter(key) {
-        if(currBox < 5){
-            const nextState = deepCopify(gameState)
-            nextState[currRow][currBox] = key
-
-            // addPop(currRow, currBox)
-            setGameState(nextState)
-            setCurrBox(currBox+1)
-        }
+    function updateLetter(key) { 
+        const nextState = deepCopify(gameState)
+        nextState[pos.currRow][pos.currBox] = key
+        setGameState(nextState)
+        setPos({...pos, currBox : pos.currBox + 1})
     }
-
-    // const addPop = (cRow, cBox) => {
-    //     const nextStyleState = deepCopify(styleState)
-    //     nextStyleState[cRow][cBox][1] = 'animate-pop'
-
-    //     setStyleState(nextStyleState)
-    //     console.log(cRow + " " + cBox + "Its Popping")
-    //     removePop(cRow, cBox, nextStyleState)
-    // }
-
-    // const removePop = async (cRow, cBox, nextStyleState) =>{
-    //     await delay(1000)
-    //     nextStyleState[cRow][cBox][1] = ' '
-    //     setStyleState(nextStyleState)
-    // }
 
 
     function deleteLetter(){
         const nextState = deepCopify(gameState)
-        nextState[currRow][currBox-1] = ""
-
-        // const nextStyleState = deepCopify(styleState)
-        // nextStyleState[currRow][currBox-1][1] = ' '
-
-        // setStyleState(nextStyleState)
+        nextState[pos.currRow][pos.currBox-1] = ""
         setGameState(nextState)
-        setCurrBox(currBox-1)
+        setPos({...pos, currBox : pos.currBox - 1})
     }
 
     function nextRow(){
-        if(currRow < 6){ 
-            if(currRow + 1 === 6){
-                setInPlay(false)
+        if(pos.currRow < 6){
+            if(pos.currRow + 1 === 6){
+             setInPlay(prev => false)
             }
-            setCurrRow(currRow+1)
-            setCurrBox(0)
+            setPos({currRow : pos.currRow + 1, currBox : 0})
         }
     }
     
     async function checkValidity() {
-        const validWord = await wordAPI(gameState[currRow].join("")) || false
+        const validWord = await wordAPI(gameState[pos.currRow].join("")) || false
         if(validWord){
             colorMeUp()
+            flipMyRow()
             nextRow()
         }
         else{
@@ -115,63 +112,55 @@ export function GCProvider({ children }) {
     }
 
     function colorMeUp(){
+
         const nextState = deepCopify(styleState)
-        const row = nextState[currRow]
-        
-        const guessArr = [...gameState[currRow]]
+        const row = nextState[pos.currRow]
+
+        const guessArr = [...gameState[pos.currRow]]
         const realDict = dictify(realWord)
-
-        //[a, p, a, l, e]   R
-        /**
-         * {
-            2: a,
-            4: e
-            }
-        **/
-        //[a, p, p, l, y]   G
-
-        //[G, G, E, G, E] 
-        //Check if in arr ? row[i] = Yellow
-        //Check if correct idx ? row[i] = Green
-
 
         //Iterate and delete letters that are on perfect index
         for( let i = 0; i < guessArr.length; i++){
             if( guessArr[i] === realDict.get(i)){
-                row[i][0] = 'bg-CORRECT'
+                row[i] = 'bg-CORRECT'
                 realDict.delete(i)
             }
+        }    
+
+        if(realDict.size === 0){
+            setInPlay(prev => false)
+            setTimeout(() => {
+                setRowStyle(prev => { return {...prev, bounceRow : pos.currRow} })
+            }, FUll_FLIP_WAIT)
+            setStyleState(nextState)        
+            return
         }
 
         const mapValues = [...realDict.values()]
         for(const key of realDict.keys()){
-            mapValues.includes(guessArr[key]) ? row[key][0] = 'bg-PRESENT' : row[key][0] = 'bg-ABSENT'
-        }
-        setStyleState(nextState)
+            if(mapValues.includes(guessArr[key])){
+                row[key] = 'bg-PRESENT' 
+                mapValues.splice(mapValues.indexOf(guessArr[key]),1)
+            }
+            else{ row[key] = 'bg-ABSENT' }
+        }       
+        setStyleState(nextState)        
     }
 
-    async function animateInvalidRow(){
-        // var i = 1
-        // const blinkTimes = 2
+    function flipMyRow(){
+        setLoading(prev => true)
+        setRowStyle(prev => { return {...prev, flipRow : pos.currRow}})
+        setTimeout(() => {
+            setRowStyle(prev => { return {...prev, flipRow : null}})
+            setLoading(prev => false)   
+        }, FUll_FLIP_WAIT)
+    }
 
-        // setInvalidRow(currRow)
-
-        // const intervalId = setInterval(() => {
-        //     console.log("Stopped")
-        //     setInvalidRow(null)
-
-        //     if(i !== blinkTimes){
-        //         i++
-        //         console.log("Restarted")
-        //         setTimeout(() => { setInvalidRow(currRow) },100)
-        //     }
-        //     else{
-        //         clearInterval(intervalId)
-        //     }
-        // }, 150)
-
-        setInvalidRow(currRow)
-        setTimeout(() => setInvalidRow(null), invalidDelay)
+    function animateInvalidRow(){        
+        setRowStyle(prev => { return {...prev, invalidRow : pos.currRow}})
+        setTimeout(() => {
+            setRowStyle(prev => { return {...prev, invalidRow : null}})
+        }, INVALID_WAIT)
 
         // https://stackoverflow.com/questions/22252214/making-text-blink-a-certain-number-of-times
         // https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke
@@ -183,7 +172,8 @@ export function GCProvider({ children }) {
         styleState,
         inPlay,
         loading,
-        invalidRow,
+        pos,
+        rowStyle,
         handleKeyChanges,
     }
 
